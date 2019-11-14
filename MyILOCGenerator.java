@@ -12,120 +12,45 @@ import static edu.jmu.decaf.ILOCInstruction.Form.*;
  */
 public class MyILOCGenerator extends ILOCGenerator
 {
-    Stack<ILOCOperand> breakLabels;
-    Stack<ILOCOperand> continueLabels;
-
-    Stack<ILOCOperand> ifLabels;
-    Stack<ILOCOperand> elseLabels;
-    Stack<ILOCOperand> doneLabels;
+    Stack<ILOCOperand> checkWhileLabels;
+    Stack<ILOCOperand> bodyWhileLabels;
+    Stack<ILOCOperand> endWhileLabels;
 
     ArrayList<ILOCOperand> callLabels; //functions
+
+    MyILOCGenerator() {
+        checkWhileLabels = new Stack<>();
+        bodyWhileLabels = new Stack<>();
+        endWhileLabels = new Stack<>();
+
+        callLabels = new ArrayList<>();
+    }
 
 
     /*
     QUESTIONS:
     how does a VoidFuncCall differ from a FuncCall?
-    what is setTempReg?
     strings are ONLY for print functions; I can't declare a string variable?
 
     NOTES:
+    create two labels, put on stack (separate stacks?)
     peek from stack when needed but pop both at end of while (postvisit from while loop, not during break)
+    break and continue
+    anonymous variables?
 
     TO-DO:
-    -conditional/while/break/continue: pdf on canvas
     -variable/assignment: pretty trivial
     -funccall and voidfunccall: gonna be brutal, lots of debugging
+    -TEST EVERYTHING (except recursion)
+
+    THINGS TO TEST:
+    -variable declarations
+    -variable accesses
+    -nested if statements
+    -nested while loops
+    -multiple functions
+    etc.
      */
-
-
-    MyILOCGenerator() {
-        breakLabels = new Stack<>();
-        continueLabels = new Stack<>();
-
-        ifLabels = new Stack<>();
-        elseLabels = new Stack<>();
-        doneLabels = new Stack<>();
-
-        callLabels = new ArrayList<>();
-    }
-
-    /**
-     * ILOC code for an ASTLiteral
-     * if the literal is an integer, just load it.
-     * if the literal is a string, deal with that later whoops
-     * if the literal is a bool, load it as 0 or 1 accordingly.
-     */
-    @Override
-    public void postVisit(ASTLiteral node) {
-        ILOCOperand destReg = ILOCOperand.newVirtualReg();
-
-        switch (node.type) {
-            case INT:
-                emit(node, LOAD_I, ILOCOperand.newIntConstant((Integer) node.value), destReg);
-                break;
-            case STR:
-                addComment(node, "I'm pretty sure I can deal with strings in just the relevant functions");
-                break;
-            case BOOL:
-                if ((Boolean) (node.value) == false) {
-                    emit(node, LOAD_I, newIntConstant(0), destReg);
-                } else {
-                    emit(node, LOAD_I, newIntConstant(1), destReg);
-                }
-                break;
-        }
-        setTempReg(node, destReg);
-    }
-
-    //TODO- should this be a previsit??? I think maybe so
-    @Override
-    public void postVisit(ASTConditional node) {
-
-        /*
-        todo
-        HOW DO YOU MAKE THE ORDER CORRECT
-        evaluate condition- copy from node.condition I think
-        add labels where needed
-        */
-        copyCode(node, node.condition);
-        ILOCOperand rE = getTempReg(node.condition);
-
-        if (node.elseBlock == null) {
-            ifLabels.push(newAnonymousLabel()); //label for B1 //TODO come back to this!/check
-            doneLabels.push(newAnonymousLabel()); //label for skip
-
-            emit(node, CBR, rE, ifLabels.peek(), doneLabels.peek());
-            emit(node, LABEL, ifLabels.peek());
-            copyCode(node, node.ifBlock);
-            emit(node, LABEL, doneLabels.peek());
-
-            //TODO pop ifLabels and doneLabels
-        } else {
-            emit(node, CBR, rE, ifLabels.pop(), elseLabels.pop());
-            //TODO pop ifLabels, doneLabels, and
-        }
-
-
-    }
-
-    @Override
-    public void postVisit(ASTWhileLoop node) {
-        //TODO
-        //use CodeGenTemplates.pdf on Canvas Files
-    }
-
-    @Override
-    public void postVisit(ASTBreak node) {
-        // todo
-        // use CodeGenTemplates.pdf on Canvas Files
-    }
-
-
-    @Override
-    public void postVisit(ASTContinue node) {
-        // todo
-        // use CodeGenTemplates.pdf on Canvas Files
-    }
 
     @Override
     public void postVisit(ASTVariable node) {
@@ -144,7 +69,7 @@ public class MyILOCGenerator extends ILOCGenerator
     public void postVisit(ASTAssignment node) {
         //TODO
         //plunk evaluation of expression into appropriate location
-
+        //you DONT need a function postVisit(expr) because you're dealing with a specific instance of the expr
     }
 
     @Override
@@ -157,6 +82,110 @@ public class MyILOCGenerator extends ILOCGenerator
     public void postVisit(ASTVoidFunctionCall node) {
         // todo: Might be a copy of postvisit with ASTFunctionCall
         //hoooooooboy
+    }
+
+    /**
+     * the only previsit function (for now) //todo check this at the end
+     * creates and pushes labels relevant to the immediate while loop.
+     */
+    @Override
+    public void preVisit(ASTWhileLoop node) {
+        checkWhileLabels.push(newAnonymousLabel());
+        bodyWhileLabels.push(newAnonymousLabel());
+        endWhileLabels.push(newAnonymousLabel());
+    }
+
+    /**
+     * ILOC code for a while loop. uses the previously created/modified stacks to find the relevant
+     * labels to which to jump and branch.
+     */
+    @Override
+    public void postVisit(ASTWhileLoop node) {
+        emit(node, LABEL, checkWhileLabels.peek()); //check
+        copyCode(node, node.guard);
+
+        ILOCOperand rE = getTempReg(node.guard); //compare
+        emit(node, CBR, rE, bodyWhileLabels.peek(), endWhileLabels.peek());
+
+        emit(node, LABEL, bodyWhileLabels.peek()); //body
+        copyCode(node, node.body);
+        emit(node, JUMP, checkWhileLabels.peek());
+
+        emit(node, LABEL, endWhileLabels.peek()); //done
+    }
+
+    /**
+     * ILOC code for a break statement.
+     * simply jump to the end of the innermost (at that moment) while loop.
+     */
+    @Override
+    public void postVisit(ASTBreak node) {
+        emit(node, JUMP, endWhileLabels.pop());
+    }
+
+
+    /**
+     * ILOC code for a break statement.
+     * simply jump to the beginner of the innermost (at that moment) while loop.
+     */
+    @Override
+    public void postVisit(ASTContinue node) {
+        emit(node, JUMP, checkWhileLabels.pop());
+    }
+
+    /**
+     * ILOC code for an ASTLiteral
+     * if the literal is an integer, just load it.
+     * if the literal is a string, you've found an alien.
+     * if the literal is a bool, load it as 0 or 1 accordingly.
+     */
+    @Override
+    public void postVisit(ASTLiteral node) {
+        ILOCOperand destReg = ILOCOperand.newVirtualReg();
+
+        switch (node.type) {
+            case INT:
+                emit(node, LOAD_I, ILOCOperand.newIntConstant((Integer) node.value), destReg);
+                break;
+            case STR:
+                addComment(node, "String variables shouldn't exist");
+                break;
+            case BOOL:
+                if ((Boolean) (node.value) == false) {
+                    emit(node, LOAD_I, newIntConstant(0), destReg);
+                } else {
+                    emit(node, LOAD_I, newIntConstant(1), destReg);
+                }
+                break;
+        }
+        setTempReg(node, destReg);
+    }
+
+    /**
+     * ILOC code for an if-statement. may or may not also include an "else".
+     */
+    @Override
+    public void postVisit(ASTConditional node) {
+        copyCode(node, node.condition);
+        ILOCOperand rE = getTempReg(node.condition);
+
+        ILOCOperand ifLabel = newAnonymousLabel(); //if X then Y
+        ILOCOperand doneLabel = newAnonymousLabel();
+
+        if (node.elseBlock == null) {
+            emit(node, CBR, rE, ifLabel, doneLabel);
+            emit(node, LABEL, ifLabel);
+            copyCode(node, node.ifBlock);
+        } else {
+            ILOCOperand elseLabel = newAnonymousLabel();
+            emit(node, CBR, rE, ifLabel, elseLabel);
+            emit(node, LABEL, ifLabel);
+            copyCode(node, node.ifBlock);
+            emit(node, JUMP, doneLabel);
+            emit(node, LABEL, elseLabel);
+            copyCode(node, node.elseBlock);
+        }
+        emit(node, LABEL, doneLabel);
     }
 
 
@@ -197,7 +226,6 @@ public class MyILOCGenerator extends ILOCGenerator
     @Override
     public void postVisit(ASTReturn node)
     {
-
         if (node.hasValue()) {
             copyCode(node, node.value);
             emit(node, ILOCInstruction.Form.I2I, getTempReg(node.value), ILOCOperand.REG_RET);
@@ -228,7 +256,7 @@ public class MyILOCGenerator extends ILOCGenerator
                 break;
             default:
                 // Program should not be able to get here
-                System.out.println("You found an easter egg!");
+                addComment(node, "You found an easter egg!");
                 break;
         }
 
@@ -298,7 +326,7 @@ public class MyILOCGenerator extends ILOCGenerator
                 break;
             default:
                 // Should never get here
-                System.out.println("You found an easter egg!");
+                addComment(node, "You found an easter egg!");
                 break;
         }
         setTempReg(node, destReg);
