@@ -12,13 +12,101 @@ import static edu.jmu.decaf.ILOCInstruction.Form.*;
  */
 public class MyILOCGenerator extends ILOCGenerator
 {
+    Stack<ILOCOperand> breakLabels;
+    Stack<ILOCOperand> continueLabels;
+
+    Stack<ILOCOperand> ifLabels;
+    Stack<ILOCOperand> elseLabels;
+    Stack<ILOCOperand> doneLabels;
+
+    ArrayList<ILOCOperand> callLabels; //functions
+
 
     /*
-    QUESTIONS ETC:
-
+    QUESTIONS:
     how does a VoidFuncCall differ from a FuncCall?
     what is setTempReg?
+    strings are ONLY for print functions; I can't declare a string variable?
+
+    NOTES:
+    peek from stack when needed but pop both at end of while (postvisit from while loop, not during break)
+
+    TO-DO:
+    -conditional/while/break/continue: pdf on canvas
+    -variable/assignment: pretty trivial
+    -funccall and voidfunccall: gonna be brutal, lots of debugging
      */
+
+
+    MyILOCGenerator() {
+        breakLabels = new Stack<>();
+        continueLabels = new Stack<>();
+
+        ifLabels = new Stack<>();
+        elseLabels = new Stack<>();
+        doneLabels = new Stack<>();
+
+        callLabels = new ArrayList<>();
+    }
+
+    /**
+     * ILOC code for an ASTLiteral
+     * if the literal is an integer, just load it.
+     * if the literal is a string, deal with that later whoops
+     * if the literal is a bool, load it as 0 or 1 accordingly.
+     */
+    @Override
+    public void postVisit(ASTLiteral node) {
+        ILOCOperand destReg = ILOCOperand.newVirtualReg();
+
+        switch (node.type) {
+            case INT:
+                emit(node, LOAD_I, ILOCOperand.newIntConstant((Integer) node.value), destReg);
+                break;
+            case STR:
+                addComment(node, "I'm pretty sure I can deal with strings in just the relevant functions");
+                break;
+            case BOOL:
+                if ((Boolean) (node.value) == false) {
+                    emit(node, LOAD_I, newIntConstant(0), destReg);
+                } else {
+                    emit(node, LOAD_I, newIntConstant(1), destReg);
+                }
+                break;
+        }
+        setTempReg(node, destReg);
+    }
+
+    //TODO- should this be a previsit??? I think maybe so
+    @Override
+    public void postVisit(ASTConditional node) {
+
+        /*
+        todo
+        HOW DO YOU MAKE THE ORDER CORRECT
+        evaluate condition- copy from node.condition I think
+        add labels where needed
+        */
+        copyCode(node, node.condition);
+        ILOCOperand rE = getTempReg(node.condition);
+
+        if (node.elseBlock == null) {
+            ifLabels.push(newAnonymousLabel()); //label for B1 //TODO come back to this!/check
+            doneLabels.push(newAnonymousLabel()); //label for skip
+
+            emit(node, CBR, rE, ifLabels.peek(), doneLabels.peek());
+            emit(node, LABEL, ifLabels.peek());
+            copyCode(node, node.ifBlock);
+            emit(node, LABEL, doneLabels.peek());
+
+            //TODO pop ifLabels and doneLabels
+        } else {
+            emit(node, CBR, rE, ifLabels.pop(), elseLabels.pop());
+            //TODO pop ifLabels, doneLabels, and
+        }
+
+
+    }
 
     @Override
     public void postVisit(ASTWhileLoop node) {
@@ -32,12 +120,6 @@ public class MyILOCGenerator extends ILOCGenerator
         // use CodeGenTemplates.pdf on Canvas Files
     }
 
-    @Override
-    public void postVisit(ASTConditional node) {
-        // todo
-        // use CodeGenTemplates.pdf on Canvas Files
-    }
-
 
     @Override
     public void postVisit(ASTContinue node) {
@@ -47,6 +129,7 @@ public class MyILOCGenerator extends ILOCGenerator
 
     @Override
     public void postVisit(ASTVariable node) {
+
         //TODO
         //allocate space
     }
@@ -85,9 +168,10 @@ public class MyILOCGenerator extends ILOCGenerator
     public void postVisit(ASTFunction node)
     {
         emit(node, PUSH, REG_BP);
+        addComment(node, "start prologue");
         emit(node, I2I, REG_SP, REG_BP);
         emitLocalVarStackAdjustment(node);
-        addComment(node, "prologue");
+        addComment(node, "end prologue");
 
         copyCode(node, node.body); // propagate code from body block to the function level
 
@@ -113,27 +197,17 @@ public class MyILOCGenerator extends ILOCGenerator
     @Override
     public void postVisit(ASTReturn node)
     {
+
         if (node.hasValue()) {
             copyCode(node, node.value);
             emit(node, ILOCInstruction.Form.I2I, getTempReg(node.value), ILOCOperand.REG_RET);
         }
 
         emit(node, I2I, REG_BP, REG_SP);
+        addComment(node, "start epilogue");
         emit(node, POP, REG_BP);
         emit(node, RETURN);
-        addComment(node, "epilogue");
-
-        emit(node, ILOCInstruction.Form.RETURN);
-    }
-
-    /**
-     * ILOC code for an ASTLiteral. just load it.
-     */
-    @Override
-    public void postVisit(ASTLiteral node) {
-        ILOCOperand destReg = ILOCOperand.newVirtualReg();
-        emit(node, LOAD_I, ILOCOperand.newIntConstant(((Integer)node.value)), destReg);
-        setTempReg(node, destReg);
+        addComment(node, "end epilogue");
     }
 
     /**
