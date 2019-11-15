@@ -8,15 +8,15 @@ import static edu.jmu.decaf.ILOCInstruction.Form.*;
 /**
  * Concrete ILOC generator class.
  *
- * authors: Ben Bradberry and Elena Trafton
+ * authors: Elena Trafton and Ben Bradberry
  */
 public class MyILOCGenerator extends ILOCGenerator
 {
-    Stack<ILOCOperand> checkWhileLabels;
-    Stack<ILOCOperand> bodyWhileLabels;
-    Stack<ILOCOperand> endWhileLabels;
+    private Stack<ILOCOperand> checkWhileLabels;
+    private Stack<ILOCOperand> bodyWhileLabels;
+    private Stack<ILOCOperand> endWhileLabels;
 
-    ArrayList<ILOCOperand> callLabels; //functions
+    private ArrayList<ILOCOperand> callLabels; //functions
 
     MyILOCGenerator() {
         checkWhileLabels = new Stack<>();
@@ -33,13 +33,17 @@ public class MyILOCGenerator extends ILOCGenerator
     strings are ONLY for print functions; I can't declare a string variable?
 
     NOTES:
-    create two labels, put on stack (separate stacks?)
-    peek from stack when needed but pop both at end of while (postvisit from while loop, not during break)
-    break and continue
-    anonymous variables?
+    variable postvisit: I don't think I need to do anything here because I've already allocated space in ASTFunction.
+
+        for function call:
+            copy code
+            create temp reg
+            assign variables to reg
+            find destination
+            CALL destination
 
     TO-DO:
-    -variable/assignment: pretty trivial
+    -variable/location/assignment: pretty trivial
     -funccall and voidfunccall: gonna be brutal, lots of debugging
     -TEST EVERYTHING (except recursion)
 
@@ -53,35 +57,55 @@ public class MyILOCGenerator extends ILOCGenerator
      */
 
     @Override
-    public void postVisit(ASTVariable node) {
-
-        //TODO
-        //allocate space
-    }
-
-    @Override
-    public void postVisit(ASTLocation node) {
-        //TODO
-        //load into register? or just let everything be handled by ASTAssignment
-    }
-
-    @Override
-    public void postVisit(ASTAssignment node) {
-        //TODO
-        //plunk evaluation of expression into appropriate location
-        //you DONT need a function postVisit(expr) because you're dealing with a specific instance of the expr
-    }
-
-    @Override
     public void postVisit(ASTFunctionCall node) {
         //TODO
+
         //hoooooboy
     }
 
     @Override
     public void postVisit(ASTVoidFunctionCall node) {
-        // todo: Might be a copy of postvisit with ASTFunctionCall
+        if (node.name.equals("printStr")) {
+            String str = ((ASTLiteral)node.arguments.get(0)).value.toString();
+            emit(node, PRINT, newStrConstant(str));
+        } else if (node.name.equals("printInt")) {
+            Integer in = (Integer)((ASTLiteral)node.arguments.get(0)).value;
+            emit(node, PRINT, newIntConstant(in));
+        }
+        //if printStr, do the thing
+
+        // todo
+        //likely similar to ASTFunctionCall
         //hoooooooboy
+    }
+
+    //
+
+    /**
+     * ILOC code for a variable access. uses the provided emitLoad() function.
+     */
+    @Override
+    public void postVisit(ASTLocation node) { //access
+        setTempReg(node, emitLoad(node));
+    }
+
+    /**
+     * ILOC code for a variable assignment. use the provided emitStore() function
+     */
+    @Override
+    public void postVisit(ASTAssignment node) {
+        copyCode(node, node.value);
+        ILOCOperand source = getTempReg(node.value);
+        emitStore(node, source);
+
+        /*
+        copyCode(node, node.value);
+        ILOCOperand source = getTempReg(node.value);
+        copyCode(node, node.location);
+        ILOCOperand dest = getTempReg(node.location);
+
+        emit(node, I2I, source, dest);
+        */
     }
 
     /**
@@ -120,7 +144,7 @@ public class MyILOCGenerator extends ILOCGenerator
      */
     @Override
     public void postVisit(ASTBreak node) {
-        emit(node, JUMP, endWhileLabels.pop());
+        emit(node, JUMP, endWhileLabels.peek());
     }
 
 
@@ -130,7 +154,7 @@ public class MyILOCGenerator extends ILOCGenerator
      */
     @Override
     public void postVisit(ASTContinue node) {
-        emit(node, JUMP, checkWhileLabels.pop());
+        emit(node, JUMP, checkWhileLabels.peek());
     }
 
     /**
@@ -331,6 +355,4 @@ public class MyILOCGenerator extends ILOCGenerator
         }
         setTempReg(node, destReg);
     }
-
-
 }
