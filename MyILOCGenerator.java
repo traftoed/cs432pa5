@@ -65,14 +65,16 @@ public class MyILOCGenerator extends ILOCGenerator
 
     @Override
     public void postVisit(ASTVoidFunctionCall node) {
-        if (node.name.equals("printStr")) {
+        if (node.name.equals("print_str")) {
             String str = ((ASTLiteral)node.arguments.get(0)).value.toString();
             emit(node, PRINT, newStrConstant(str));
-        } else if (node.name.equals("printInt")) {
+        } else if (node.name.equals("print_int")) {
             Integer in = (Integer)((ASTLiteral)node.arguments.get(0)).value;
             emit(node, PRINT, newIntConstant(in));
+        } else if (node.name.equals("print_bool")) {
+            Boolean bool = (Boolean)((ASTLiteral)node.arguments.get(0)).value;
+            emit(node, PRINT, newStrConstant(bool.toString()));
         }
-        //if printStr, do the thing
 
         // todo
         //likely similar to ASTFunctionCall
@@ -228,7 +230,14 @@ public class MyILOCGenerator extends ILOCGenerator
 
         copyCode(node, node.body); // propagate code from body block to the function level
 
-        //no epilogue because that happens in the ASTReturn instead
+        //no epilogue because that happens in the ASTReturn instead TODO change this comment/figure this out
+        if (node.returnType == ASTNode.DataType.VOID) {
+            emit(node, I2I, REG_BP, REG_SP);
+            addComment(node, "start epilogue at the end of a void function");
+            emit(node, POP, REG_BP);
+            emit(node, RETURN);
+            addComment(node, "end epilogue at the end of a void function");
+        }
     }
 
     /**
